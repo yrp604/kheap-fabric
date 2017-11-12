@@ -15,5 +15,7 @@ int main() {
 
 	struct foo *a = malloc(sizeof(x) * 5);
 
+	struct foo *b = malloc(0x41);
+
 	return 0;
 }
