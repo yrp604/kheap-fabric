@@ -1,56 +1,59 @@
-# include "clang/StaticAnalyzer/Core/CheckerRegistry.h"
+#include "ClangSACheckers.h"
 
-# include "clang/StaticAnalyzer/Core/BugReporter/BugType.h"
-# include "clang/StaticAnalyzer/Core/Checker.h"
-# include "clang/StaticAnalyzer/Core/PathSensitive/CallEvent.h"
-# include "clang/StaticAnalyzer/Core/PathSensitive/CheckerContext.h"
+#include "clang/StaticAnalyzer/Core/BugReporter/BugType.h"
 
-extern "C"
-void clang_registerCheckers ( CheckerRegistry & registry ) {
-	registry.addChecker<KHeapFabric>("alpha.core.KHeapFabric", "Generate kernel heap fabric");
-}
+#include "clang/StaticAnalyzer/Core/Checker.h"
+#include "clang/StaticAnalyzer/Core/CheckerManager.h"
+#include "clang/StaticAnalyzer/Core/CheckerRegistry.h"
 
-extern "C" const char clang_analyzerAPIVersionString[] = CLANG_ANALYZER_API_VERSION_STRING;
+#include "clang/StaticAnalyzer/Core/PathSensitive/CallEvent.h"
+#include "clang/StaticAnalyzer/Core/PathSensitive/CheckerContext.h"
+#include "clang/StaticAnalyzer/Core/PathSensitive/CheckerHelpers.h"
 
 using namespace clang;
-using namespace clang::ento;
+using namespace ento;
 
 namespace {
-	class KHeapFabric : public Checker<check::PreCall> {
+	class KHeapFabricChecker : public Checker<check::PreCall> {
 		mutable std::unique_ptr<BugType> BT;
 		mutable const IdentifierInfo *IImalloc;
+
+		void initIdentifierInfo(const ASTContext &ACtx) const;
+		void collectStructs(const Expr *E, std::vector<std::string> &structs) const;
 
 		public:
 		void checkPreCall(const CallEvent &Call, CheckerContext &C) const;
 	};
 }
 
-void KHeapFabricr::initIdentifierInfo(ASTContext &ACtx) const {
+void KHeapFabricChecker::initIdentifierInfo(const ASTContext &ACtx) const {
 	if (IImalloc) return;
 
 	IImalloc =  &ACtx.Idents.get("malloc");
 }
 
-void KHeapFabric::collectStructs(Expr *E, vector<std::string>& structs) const {
+void KHeapFabricChecker::collectStructs(const Expr *E, std::vector<std::string> &structs) const {
 	if (isa<BinaryOperator>(E)) {
-		collectStructs(E.getLHS(), structs);
-		collectStructs(E.getRHS(), structs);
+		const BinaryOperator *BO = cast<BinaryOperator>(E);
+
+		collectStructs(BO->getLHS(), structs);
+		collectStructs(BO->getRHS(), structs);
 
 		return;
 	}
 
 	if (!isa<UnaryExprOrTypeTraitExpr>(E)) return;
 
-	if (E->getType() != UETT_SizeOf) return;
+	const UnaryExprOrTypeTraitExpr *UEOTT = cast<UnaryExprOrTypeTraitExpr>(E);
 
-	const Expr *no_parens = E.IgnoreParens();
+	if (UEOTT->getKind() != UETT_SizeOf) return;
 
-	const QT *t = E.getTypeOfArgument();
+	const QualType T = UEOTT->getTypeOfArgument();
 
-	structs.push_back(t.getAsString());
+	structs.push_back(T.getAsString());
 }
 
-void KHeapFabric::checkPreCall(const CallEvent &Call, CheckerContext &C) const {
+void KHeapFabricChecker::checkPreCall(const CallEvent &Call, CheckerContext &C) const {
 	initIdentifierInfo(C.getASTContext());
 
 	if (Call.getCalleeIdentifier() != IImalloc) return;
@@ -61,23 +64,23 @@ void KHeapFabric::checkPreCall(const CallEvent &Call, CheckerContext &C) const {
 
 	std::vector<std::string> structs;
 
-	collectStructs(e, structs);
+	collectStructs(E, structs);
 
 	if (structs.size() == 0) return;
 
 	std::string struct_types = structs[0];
 
-	for (int i = 1; i < structs.size(); ++i)
+	for (size_t i = 1; i < structs.size(); ++i)
 		struct_types += ", " + structs[i];
 
 	if (!BT)
 		BT.reset(new BugType(this, struct_types, "KHeap Fabric"));
 
-	ExplodedNode *N = C.generateErrorNode();
+	ExplodedNode *N = C.generateNonFatalErrorNode();
 	auto Report = llvm::make_unique<BugReport>(*BT, BT->getName(), N);
 	C.emitReport(std::move(Report));
 }
 
-void ento::registerMainCallChecker(CheckerManager &Mgr) {
-	Mgr.registerChecker<KHeapFabric>();
+void ento::registerKHeapFabricChecker(CheckerManager &Mgr) {
+	Mgr.registerChecker<KHeapFabricChecker>();
 }
