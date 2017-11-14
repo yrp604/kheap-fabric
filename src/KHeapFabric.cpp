@@ -16,6 +16,7 @@ using namespace ento;
 namespace {
 	class KHeapFabricChecker : public Checker<check::PreCall> {
 		mutable std::unique_ptr<BugType> BT;
+		mutable std::vector<std::string> structs;
 		mutable const IdentifierInfo *IImalloc;
 
 		void initIdentifierInfo(const ASTContext &ACtx) const;
@@ -32,12 +33,12 @@ void KHeapFabricChecker::initIdentifierInfo(const ASTContext &ACtx) const {
 	IImalloc =  &ACtx.Idents.get("malloc");
 }
 
-void KHeapFabricChecker::collectStructs(const Expr *E, std::vector<std::string> &structs) const {
+void KHeapFabricChecker::collectStructs(const Expr *E, std::vector<std::string> &types) const {
 	if (isa<BinaryOperator>(E)) {
 		const BinaryOperator *BO = cast<BinaryOperator>(E);
 
-		collectStructs(BO->getLHS(), structs);
-		collectStructs(BO->getRHS(), structs);
+		collectStructs(BO->getLHS(), types);
+		collectStructs(BO->getRHS(), types);
 
 		return;
 	}
@@ -50,7 +51,7 @@ void KHeapFabricChecker::collectStructs(const Expr *E, std::vector<std::string> 
 
 	const QualType T = UEOTT->getTypeOfArgument();
 
-	structs.push_back(T.getAsString());
+	types.push_back(T.getAsString());
 }
 
 void KHeapFabricChecker::checkPreCall(const CallEvent &Call, CheckerContext &C) const {
@@ -62,23 +63,24 @@ void KHeapFabricChecker::checkPreCall(const CallEvent &Call, CheckerContext &C) 
 
 	if (!E) return;
 
-	std::vector<std::string> structs;
-
 	collectStructs(E, structs);
 
 	if (structs.size() == 0) return;
 
-	std::string struct_types = structs[0];
-
-	for (size_t i = 1; i < structs.size(); ++i)
-		struct_types += ", " + structs[i];
-
 	if (!BT)
-		BT.reset(new BugType(this, struct_types, "KHeap Fabric"));
+		BT.reset(new BugType(this, "Struct used in dynamic allocation", "KHeap Fabric"));
 
 	ExplodedNode *N = C.generateNonFatalErrorNode();
-	auto Report = llvm::make_unique<BugReport>(*BT, BT->getName(), N);
+
+	std::unique_ptr<BugReport> Report(new BugReport(*BT, BT->getName(), N));
+
+	for (size_t i = 0; i < structs.size(); ++i) {
+		Report->addExtraText(StringRef(structs[i]));
+	}
+
 	C.emitReport(std::move(Report));
+
+	structs.clear();
 }
 
 void ento::registerKHeapFabricChecker(CheckerManager &Mgr) {
