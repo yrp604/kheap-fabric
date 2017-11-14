@@ -1,5 +1,3 @@
-#include "ClangSACheckers.h"
-
 #include "clang/StaticAnalyzer/Core/BugReporter/BugType.h"
 
 #include "clang/StaticAnalyzer/Core/Checker.h"
@@ -16,11 +14,12 @@ using namespace ento;
 namespace {
 	class KHeapFabricChecker : public Checker<check::PreCall> {
 		mutable std::unique_ptr<BugType> BT;
-		mutable std::vector<std::string> structs;
+		mutable std::set<std::string> structs;
+		mutable std::set<std::string> struct_store;
 		mutable const IdentifierInfo *IImalloc;
 
 		void initIdentifierInfo(const ASTContext &ACtx) const;
-		void collectStructs(const Expr *E, std::vector<std::string> &structs) const;
+		void collectStructs(const Expr *E, std::set<std::string> &structs) const;
 
 		public:
 		void checkPreCall(const CallEvent &Call, CheckerContext &C) const;
@@ -33,7 +32,7 @@ void KHeapFabricChecker::initIdentifierInfo(const ASTContext &ACtx) const {
 	IImalloc =  &ACtx.Idents.get("malloc");
 }
 
-void KHeapFabricChecker::collectStructs(const Expr *E, std::vector<std::string> &types) const {
+void KHeapFabricChecker::collectStructs(const Expr *E, std::set<std::string> &types) const {
 	if (isa<BinaryOperator>(E)) {
 		const BinaryOperator *BO = cast<BinaryOperator>(E);
 
@@ -51,7 +50,8 @@ void KHeapFabricChecker::collectStructs(const Expr *E, std::vector<std::string> 
 
 	const QualType T = UEOTT->getTypeOfArgument();
 
-	types.push_back(T.getAsString());
+	structs.insert(T.getAsString());
+	struct_store.insert(T.getAsString());
 }
 
 void KHeapFabricChecker::checkPreCall(const CallEvent &Call, CheckerContext &C) const {
@@ -74,8 +74,13 @@ void KHeapFabricChecker::checkPreCall(const CallEvent &Call, CheckerContext &C) 
 
 	std::unique_ptr<BugReport> Report(new BugReport(*BT, BT->getName(), N));
 
-	for (size_t i = 0; i < structs.size(); ++i) {
-		Report->addExtraText(StringRef(structs[i]));
+	for (auto e : structs) {
+		auto long_lived_str = struct_store.find(e);
+		if (long_lived_str == struct_store.end()) {
+			fprintf(stderr, "String in 'structs' thats not in 'struct_store'\n");
+			exit(EXIT_FAILURE);
+		}
+		Report->addExtraText(*long_lived_str);
 	}
 
 	C.emitReport(std::move(Report));
@@ -83,6 +88,10 @@ void KHeapFabricChecker::checkPreCall(const CallEvent &Call, CheckerContext &C) 
 	structs.clear();
 }
 
-void ento::registerKHeapFabricChecker(CheckerManager &Mgr) {
-	Mgr.registerChecker<KHeapFabricChecker>();
+extern "C" const char clang_analyzerAPIVersionString[] = CLANG_ANALYZER_API_VERSION_STRING;
+
+extern "C"
+void clang_registerCheckers(CheckerRegistry &registry) {
+	registry.addChecker<KHeapFabricChecker>("alpha.security.KHeapFabric", "Recover the dynamically allocated structs");
 }
+
