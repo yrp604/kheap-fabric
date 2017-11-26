@@ -2,7 +2,14 @@
 
 ## Install
 
-`make`
+`$ make`
 
 ## Usage
-`scan-build -load-plugin ./KHeapFabric.so -enable-checker alpha.security.KHeapFabric <your make target>`
+
+```sh
+$ scan-build \
+	-load-plugin <path/to/KHeapFabric.so> \
+	-enable-checker alpha.security.KHeapFabric \
+	-disable-checker core,unix,deadcode,nullability \
+	make <your make target>
+```

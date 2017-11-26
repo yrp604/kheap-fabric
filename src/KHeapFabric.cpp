@@ -8,6 +8,8 @@
 #include "clang/StaticAnalyzer/Core/PathSensitive/CheckerContext.h"
 #include "clang/StaticAnalyzer/Core/PathSensitive/CheckerHelpers.h"
 
+#include "llvm/Support/raw_ostream.h"
+
 using namespace clang;
 using namespace ento;
 
@@ -19,7 +21,7 @@ namespace {
 		mutable const IdentifierInfo *IImalloc;
 
 		void initIdentifierInfo(const ASTContext &ACtx) const;
-		void collectStructs(const Expr *E, std::set<std::string> &structs) const;
+		void collectStructs(const Expr *E, const ASTContext &ACtx, std::set<std::string> &structs) const;
 
 		public:
 		void checkPreCall(const CallEvent &Call, CheckerContext &C) const;
@@ -32,12 +34,12 @@ void KHeapFabricChecker::initIdentifierInfo(const ASTContext &ACtx) const {
 	IImalloc =  &ACtx.Idents.get("malloc");
 }
 
-void KHeapFabricChecker::collectStructs(const Expr *E, std::set<std::string> &types) const {
+void KHeapFabricChecker::collectStructs(const Expr *E, const ASTContext &ACtx, std::set<std::string> &types) const {
 	if (isa<BinaryOperator>(E)) {
 		const BinaryOperator *BO = cast<BinaryOperator>(E);
 
-		collectStructs(BO->getLHS(), types);
-		collectStructs(BO->getRHS(), types);
+		collectStructs(BO->getLHS(), ACtx, types);
+		collectStructs(BO->getRHS(), ACtx, types);
 
 		return;
 	}
@@ -48,10 +50,19 @@ void KHeapFabricChecker::collectStructs(const Expr *E, std::set<std::string> &ty
 
 	if (UEOTT->getKind() != UETT_SizeOf) return;
 
-	const QualType T = UEOTT->getTypeOfArgument();
+	const QualType QT = UEOTT->getTypeOfArgument();
 
-	structs.insert(T.getAsString());
-	struct_store.insert(T.getAsString());
+	structs.insert(QT.getAsString());
+	struct_store.insert(QT.getAsString());
+
+	const CXXRecordDecl *CRD = QT.getTypePtr()->getAsCXXRecordDecl();
+
+	std::string layout;
+	llvm::raw_string_ostream rsos(layout);
+
+	ACtx.DumpRecordLayout(CRD->getDefinition(), rsos, true);
+
+	printf("layout:\n%s\n", rsos.str().c_str());
 }
 
 void KHeapFabricChecker::checkPreCall(const CallEvent &Call, CheckerContext &C) const {
@@ -63,7 +74,7 @@ void KHeapFabricChecker::checkPreCall(const CallEvent &Call, CheckerContext &C) 
 
 	if (!E) return;
 
-	collectStructs(E, structs);
+	collectStructs(E, C.getASTContext(), structs);
 
 	if (structs.size() == 0) return;
 
