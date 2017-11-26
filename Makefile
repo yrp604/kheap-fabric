@@ -12,6 +12,7 @@ KHeapFabric.so: src/KHeapFabric.cpp.o
 
 .PHONY: report
 report: KHeapFabric.so
+	mkdir -p report
 	scan-build \
 		-o report \
 		-load-plugin ./KHeapFabric.so \
@@ -20,14 +21,14 @@ report: KHeapFabric.so
 
 .PHONY: view
 view: clean report
-	scan-view $(shell pwd)/report/* --host 45.63.39.81 --allow-all-hosts
+	scan-view $(shell pwd)/report/* --host 0.0.0.0 --allow-all-hosts
 
 test: t/malloc-struct.c
 	$(CC) -o t/$@ $^
 
 .PHONY: clean
 clean:
-	$(RM) -r report/*
+	$(RM) -rf report
 	$(RM) t/test
 	$(RM) src/KHeapFabric.cpp.o
 	$(RM) KHeapFabric.so
