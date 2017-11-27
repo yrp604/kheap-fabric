@@ -20,7 +20,7 @@ namespace {
 		mutable std::unique_ptr<BugType> BT;
 		mutable std::set<std::string> structs;
 		mutable std::map<std::string,std::string> struct_store;
-		mutable const IdentifierInfo *IImalloc;
+		mutable std::set<const IdentifierInfo*> target_calls;
 
 		void initIdentifierInfo(const ASTContext &ACtx) const;
 		void collectStructs(const Expr *E, const ASTContext &ACtx, std::set<std::string> &structs) const;
@@ -31,9 +31,11 @@ namespace {
 }
 
 void KHeapFabricChecker::initIdentifierInfo(const ASTContext &ACtx) const {
-	if (IImalloc) return;
+	if (target_calls.size() > 0) return;
 
-	IImalloc =  &ACtx.Idents.get("malloc");
+	target_calls.insert(&ACtx.Idents.get("kmalloc"));
+	target_calls.insert(&ACtx.Idents.get("kzalloc"));
+	target_calls.insert(&ACtx.Idents.get("vmalloc"));
 }
 
 void KHeapFabricChecker::collectStructs(const Expr *E, const ASTContext &ACtx, std::set<std::string> &types) const {
@@ -74,7 +76,7 @@ void KHeapFabricChecker::collectStructs(const Expr *E, const ASTContext &ACtx, s
 void KHeapFabricChecker::checkPreCall(const CallEvent &Call, CheckerContext &C) const {
 	initIdentifierInfo(C.getASTContext());
 
-	if (Call.getCalleeIdentifier() != IImalloc) return;
+	if (target_calls.find(Call.getCalleeIdentifier()) == target_calls.end()) return;
 
 	const Expr *E = Call.getArgExpr(0);
 
