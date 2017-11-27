@@ -8,8 +8,17 @@ struct foo {
 };
 
 struct bar {
-	int x;
-	int y;
+	union {
+		int x;
+		int y;
+	} baz;
+};
+
+struct p {
+	struct {
+		int x;
+		int y;
+	} q;
 };
 
 int main() {
@@ -27,13 +36,21 @@ int main() {
 
 	struct foo *b = malloc(0x41);
 
+	int *e = malloc(sizeof(int));
+
+	struct p *f = malloc(sizeof(struct p));
+
 	memset (y, 0, sizeof(*y));
 	memset (z, 0, sizeof(*z));
 	memset (a, 0, sizeof(z) * 5);
 	memset (b, 0, 0x41);
 	memset (d, 0, sizeof(struct foo) * 5);
 	memset (c, 0, sizeof(*c));
+	memset (e, 0, sizeof(*e));
+	memset (f, 0, sizeof(*f));
 
+	free (f);
+	free (e);
 	free (d);
 	free (c);
 	free (b);

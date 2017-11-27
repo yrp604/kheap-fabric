@@ -8,6 +8,8 @@
 #include "clang/StaticAnalyzer/Core/PathSensitive/CheckerContext.h"
 #include "clang/StaticAnalyzer/Core/PathSensitive/CheckerHelpers.h"
 
+#include "clang/AST/RecordLayout.h"
+
 #include "llvm/Support/raw_ostream.h"
 
 using namespace clang;
@@ -17,14 +19,14 @@ namespace {
 	class KHeapFabricChecker : public Checker<check::PreCall> {
 		mutable std::unique_ptr<BugType> BT;
 		mutable std::set<std::string> structs;
-		mutable std::set<std::string> struct_store;
+		mutable std::map<std::string,std::string> struct_store;
 		mutable const IdentifierInfo *IImalloc;
 
 		void initIdentifierInfo(const ASTContext &ACtx) const;
 		void collectStructs(const Expr *E, const ASTContext &ACtx, std::set<std::string> &structs) const;
 
 		public:
-		void checkPreCall(const CallEvent &Call, CheckerContext &C) const;
+			void checkPreCall(const CallEvent &Call, CheckerContext &C) const;
 	};
 }
 
@@ -52,17 +54,21 @@ void KHeapFabricChecker::collectStructs(const Expr *E, const ASTContext &ACtx, s
 
 	const QualType QT = UEOTT->getTypeOfArgument();
 
-	structs.insert(QT.getAsString());
-	struct_store.insert(QT.getAsString());
+	const Type *T = QT.getTypePtr();
 
-	const CXXRecordDecl *CRD = QT.getTypePtr()->getAsCXXRecordDecl();
+	if (!T->isStructureType()) return;
+
+	std::string struct_name = QT.getAsString();
+
+	const RecordDecl *RD = T->getAsStructureType()->getDecl();
 
 	std::string layout;
 	llvm::raw_string_ostream rsos(layout);
 
-	ACtx.DumpRecordLayout(CRD->getDefinition(), rsos, true);
+	ACtx.DumpRecordLayout(RD, rsos);
 
-	printf("layout:\n%s\n", rsos.str().c_str());
+	structs.insert(struct_name);
+	struct_store[struct_name] = rsos.str();
 }
 
 void KHeapFabricChecker::checkPreCall(const CallEvent &Call, CheckerContext &C) const {
@@ -86,12 +92,12 @@ void KHeapFabricChecker::checkPreCall(const CallEvent &Call, CheckerContext &C) 
 	std::unique_ptr<BugReport> Report(new BugReport(*BT, BT->getName(), N));
 
 	for (auto e : structs) {
-		auto long_lived_str = struct_store.find(e);
-		if (long_lived_str == struct_store.end()) {
-			fprintf(stderr, "String in 'structs' thats not in 'struct_store'\n");
-			exit(EXIT_FAILURE);
+		for (auto const &v : struct_store) {
+			if (v.first != e) continue;
+
+			Report->addExtraText(v.first);
+			Report->addExtraText(v.second);
 		}
-		Report->addExtraText(*long_lived_str);
 	}
 
 	C.emitReport(std::move(Report));
