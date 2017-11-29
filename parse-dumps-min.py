@@ -87,7 +87,6 @@ def convert(layout):
 
 	total_sz, _ = split_line(lines[-1])
 
-	# XXX size filter?
 	layout = filter(lambda e: e['size'] > 0, stack)
 
 	return {'size': total_sz, 'layout': layout}
@@ -147,11 +146,7 @@ def parse_report(report):
 
 	info = parser.dump()
 
-	x = convert(info['struct_def'])
-	del info['struct_def']
-
-	info['layout'] = x['layout']
-	info['size']   = x['size']
+	info['struct_def'] = convert(info['struct_def'])
 
 	return info
 
@@ -160,7 +155,7 @@ def main(argv):
 
 	report_dir = argv[1]
 
-	structs = []
+	structs = {}
 
 	for fname in os.listdir(report_dir):
 		if 'report' not in fname: continue
@@ -172,9 +167,20 @@ def main(argv):
 		with open(path, 'r') as h:
 			struct_info = parse_report(h.read())
 
-		struct_info['report_file'] = fname
+		loc = {
+			'filename': struct_info['filename'],
+			'lineno': struct_info['lineno'],
+			'report': fname}
 
-		structs.append(struct_info)
+		name = struct_info['struct_name']
+
+		if name not in structs:
+			structs[name] = {
+				'loc': [loc],
+				'layout': struct_info['struct_def']['layout'],
+				'size': struct_info['struct_def']['size']}
+		else:
+			structs[name]['loc'].append(loc)
 
 	log('got %d structures' % len(structs))
 
